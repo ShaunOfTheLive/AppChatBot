@@ -1,6 +1,8 @@
 import json
-import requests
 from urllib.parse import urlencode
+
+import requests
+import tinys3
 
 from ConfigDict import ConfigDict
 
@@ -97,3 +99,57 @@ class AppChatBot(object):
         r.raise_for_status()
 
     # TODO: post image message
+    def post_image(self, package_name, filename):
+        url = 'https://cognito-identity.us-east-1.amazonaws.com/'
+        post_data = '{"IdentityPoolId":"us-east-1:dd019d8a-7b9d-487d-b0c8-61d904fb8c6a","Logins":{}}'
+        headers = {'X-Amz-Target': 'AWSCognitoIdentityService.GetId',
+                   'Content-Type': 'application/x-amz-json-1.0'}
+
+        r = requests.post(url, headers=headers, data=post_data)
+
+        identity_id = r.text
+        print(identity_id)
+
+        post_data = identity_id
+        headers['X-Amz-Target'] = 'AWSCognitoIdentityService.GetCredentialsForIdentity'
+
+        r = requests.post(url, headers=headers, data=post_data)
+
+        credentials = r.json()
+
+        S3_ACCESS_KEY = credentials['Credentials']['AccessKeyId']
+        S3_SECRET_KEY = credentials['Credentials']['SecretKey']
+        print(S3_ACCESS_KEY)
+        print(S3_SECRET_KEY)
+        import hashlib
+        import base64
+        m = hashlib.md5()
+        hash = hashlib.md5(open(filename, 'rb').read()).hexdigest()
+        hash = base64.b64encode(hash.encode('utf-8')).decode('utf-8')
+        print(hash)
+        print(credentials['Credentials']['SessionToken'])
+        headers={'x-amz-security-token': credentials['Credentials']['SessionToken'],
+                 'Content-MD5': hash,
+                 'Expect': '100-continue'}
+        from tinys3.auth import S3Auth
+        print(S3Auth(S3_ACCESS_KEY, S3_SECRET_KEY))
+        r = requests.get('http://appchat-screenshots.s3.amazonaws.com/?location', auth=S3Auth(S3_ACCESS_KEY, S3_SECRET_KEY), headers=headers)
+        print(r.text)
+        
+        conn = tinys3.Connection(S3_ACCESS_KEY, S3_SECRET_KEY)
+#        conn.delete('testname-Screenshot_2015-05-01-21-36-57.png', 'appchat-screenshots')
+#        print(str(list(conn.list('screenshot', 'appchat-screenshots'))))
+
+        with open(filename, 'rb') as f:
+            conn.upload(filename, f, bucket='appchat-screenshots', headers=headers)
+
+        r.raise_for_status()
+
+        query = urlencode({'username': self.config['username'],
+                           'accessToken': self.config['accessToken'],
+                           'packageName': package_name,
+                           'imageKey': filename})
+        urlpath = '/application/postMessage?%s' % query
+
+        r = requests.post(self.base_url + urlpath)
+
