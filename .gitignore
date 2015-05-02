@@ -1,0 +1,5 @@
+*.pyc
+config.json
+virtualenv*
+start.sh
+
